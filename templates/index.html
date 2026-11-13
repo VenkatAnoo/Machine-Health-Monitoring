@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI4I 2020 | Spindle Torque Telemetry</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0B0F19; color: #F3F4F6; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        input[type="range"] { accent-color: #3B82F6; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <header class="bg-[#111827] border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/30">⚙️</div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-white">AI4I 2020 Predictive Maintenance</h1>
+                <p class="text-xs text-gray-400">CNC Milling Spindle Torque & Telemetry Analytics</p>
+            </div>
+        </div>
+        <div>
+            {% if model_loaded %}
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2 animate-pulse"></span> MODEL ONLINE
+            </span>
+            {% else %}
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-950 text-red-400 border border-red-800">
+                ● MODEL OFFLINE
+            </span>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Controls Sidebar -->
+        <section class="lg:col-span-4 bg-[#111827] border border-gray-800 rounded-xl p-6 flex flex-col justify-between shadow-xl">
+            <div>
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">Telemetry Inputs</h2>
+
+                <div class="mb-5">
+                    <label class="block text-xs font-medium text-gray-400 mb-2">Product Quality Variant</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button type="button" onclick="setVariant('L')" id="btn-L" class="variant-btn py-2 rounded-lg text-sm font-semibold border border-gray-700 bg-gray-900 text-gray-300">L</button>
+                        <button type="button" onclick="setVariant('M')" id="btn-M" class="variant-btn py-2 rounded-lg text-sm font-semibold border border-blue-500 bg-blue-600/20 text-blue-400">M</button>
+                        <button type="button" onclick="setVariant('H')" id="btn-H" class="variant-btn py-2 rounded-lg text-sm font-semibold border border-gray-700 bg-gray-900 text-gray-300">H</button>
+                    </div>
+                </div>
+
+                <div class="mb-5">
+                    <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Air Temp [K]</span><span id="val-air" class="mono text-blue-400">298.1 K</span></div>
+                    <input type="range" id="air_temp" min="295.0" max="305.0" step="0.1" value="298.1" oninput="updateLabelsOnly()" class="w-full">
+                </div>
+
+                <div class="mb-5">
+                    <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Process Temp [K]</span><span id="val-proc" class="mono text-blue-400">308.6 K</span></div>
+                    <input type="range" id="process_temp" min="305.0" max="315.0" step="0.1" value="308.6" oninput="updateLabelsOnly()" class="w-full">
+                </div>
+
+                <div class="mb-5">
+                    <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Rotational Speed [rpm]</span><span id="val-rpm" class="mono text-blue-400">1550 rpm</span></div>
+                    <input type="range" id="rotational_speed" min="1100" max="2900" step="10" value="1550" oninput="updateLabelsOnly()" class="w-full">
+                </div>
+
+                <div class="mb-6">
+                    <div class="flex justify-between text-xs mb-1"><span class="text-gray-400">Tool Wear [min]</span><span id="val-wear" class="mono text-blue-400">45 min</span></div>
+                    <input type="range" id="tool_wear" min="0" max="250" step="1" value="45" oninput="updateLabelsOnly()" class="w-full">
+                </div>
+            </div>
+            <button onclick="runPrediction()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition shadow-lg shadow-blue-600/30 cursor-pointer">Run Torque Inference</button>
+        </section>
+
+        <!-- Analytics Output Panel -->
+        <section class="lg:col-span-8 flex flex-col space-y-6">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="bg-[#111827] border border-gray-800 rounded-xl p-4">
+                    <p class="text-xs text-gray-400 mb-1">Predicted Torque</p>
+                    <p id="kpi-torque" class="mono text-2xl font-bold text-white">-- Nm</p>
+                </div>
+                <div class="bg-[#111827] border border-gray-800 rounded-xl p-4">
+                    <p class="text-xs text-gray-400 mb-1">Mechanical Power</p>
+                    <p id="kpi-power" class="mono text-2xl font-bold text-white">-- kW</p>
+                </div>
+                <div class="bg-[#111827] border border-gray-800 rounded-xl p-4">
+                    <p class="text-xs text-gray-400 mb-1">Thermal Gradient (ΔT)</p>
+                    <p id="kpi-temp" class="mono text-2xl font-bold text-white">-- K</p>
+                </div>
+                <div class="bg-[#111827] border border-gray-800 rounded-xl p-4">
+                    <p class="text-xs text-gray-400 mb-1">Overstrain Index</p>
+                    <p id="kpi-strain" class="mono text-2xl font-bold text-white">--</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1">
+                <div class="bg-[#111827] border border-gray-800 rounded-xl p-4 flex items-center justify-center">
+                    <div id="gaugeChart" class="w-full h-72"></div>
+                </div>
+                <div class="bg-[#111827] border border-gray-800 rounded-xl p-6 flex flex-col">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-4">Diagnostics & Alerts</h3>
+                    <div id="alertsContainer" class="space-y-3 flex-1 overflow-y-auto"></div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        let selectedVariant = 'M';
+
+        function setVariant(v) {
+            selectedVariant = v;
+            document.querySelectorAll('.variant-btn').forEach(btn => btn.className = "variant-btn py-2 rounded-lg text-sm font-semibold border border-gray-700 bg-gray-900 text-gray-300");
+            document.getElementById(`btn-${v}`).className = "variant-btn py-2 rounded-lg text-sm font-semibold border border-blue-500 bg-blue-600/20 text-blue-400";
+        }
+
+        function updateLabelsOnly() {
+            document.getElementById('val-air').innerText = parseFloat(document.getElementById('air_temp').value).toFixed(1) + ' K';
+            document.getElementById('val-proc').innerText = parseFloat(document.getElementById('process_temp').value).toFixed(1) + ' K';
+            document.getElementById('val-rpm').innerText = document.getElementById('rotational_speed').value + ' rpm';
+            document.getElementById('val-wear').innerText = document.getElementById('tool_wear').value + ' min';
+        }
+
+        async function runPrediction() {
+            const payload = {
+                air_temp: parseFloat(document.getElementById('air_temp').value),
+                process_temp: parseFloat(document.getElementById('process_temp').value),
+                rotational_speed: parseInt(document.getElementById('rotational_speed').value),
+                tool_wear: parseInt(document.getElementById('tool_wear').value),
+                machine_type: selectedVariant
+            };
+
+            try {
+                const res = await fetch('/predict', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify(payload) 
+                });
+                const data = await res.json();
+
+                if (!res.ok) throw new Error(data.detail || "Prediction failed");
+
+                document.getElementById('kpi-torque').innerText = `${data.torque.toFixed(2)} Nm`;
+                document.getElementById('kpi-power').innerText = `${data.power_kw.toFixed(2)} kW`;
+                document.getElementById('kpi-temp').innerText = `${data.temp_diff.toFixed(1)} K`;
+                document.getElementById('kpi-strain').innerText = `${data.overstrain.toLocaleString()}`;
+
+                Plotly.newPlot('gaugeChart', [{
+                    type: "indicator", mode: "gauge+number", value: data.torque,
+                    number: { suffix: " Nm", font: { size: 30, color: "#F3F4F6", family: "JetBrains Mono" } },
+                    gauge: { 
+                        axis: { range: [0, 80] }, 
+                        bar: { color: "#3B82F6" }, 
+                        bgcolor: "#1F2937",
+                        steps: [
+                            { range: [0, 48], color: "rgba(16, 185, 129, 0.2)" }, 
+                            { range: [48, 60], color: "rgba(245, 158, 11, 0.25)" }, 
+                            { range: [60, 80], color: "rgba(239, 68, 68, 0.3)" }
+                        ] 
+                    }
+                }], { margin: { t: 30, b: 20, l: 20, r: 20 }, paper_bgcolor: "rgba(0,0,0,0)", font: { color: "#F3F4F6" } }, { displayModeBar: false });
+
+                const container = document.getElementById('alertsContainer');
+                container.innerHTML = '';
+                data.alerts.forEach(alert => {
+                    let styles = 'bg-emerald-950/60 border-emerald-800 text-emerald-300';
+                    if (alert.level === 'warning') styles = 'bg-amber-950/60 border-amber-800 text-amber-300';
+                    if (alert.level === 'critical') styles = 'bg-red-950/60 border-red-800 text-red-300';
+                    container.innerHTML += `<div class="p-3 rounded-lg border ${styles}"><div class="font-semibold text-xs mb-1">${alert.title}</div><p class="text-xs opacity-90">${alert.msg}</p></div>`;
+                });
+            } catch (err) {
+                console.error("Error running inference:", err);
+            }
+        }
+
+        // Initialize labels and run first prediction on page startup
+        window.onload = () => {
+            updateLabelsOnly();
+            runPrediction();
+        };
+    </script>
+</body>
+</html>
